@@ -76,7 +76,6 @@ isLiteral = False  # is HEX/STRING a literal?
 isExtd = False
 isBASE = False  # Are we using the base?
 isAddressed = False  # is the literals addressed or still -1?
-isEQU = False
 base = None
 PCrange = range(-2048, 2048)  # to 2048 not 2047 because range() is exclusive
 BASErange = range(0, 4096)  # to 4096 not 4095 because range() is exclusive
@@ -91,8 +90,8 @@ blockType = 0
 RTP = 0  # Relative To Program = sizeOfBlockTybes + Target Address (TA)
 sizeOfBlocks = [0, 0, 0]
 
-# expression variables:
-result = 0
+# expression variable
+operator = ('+', '-')
 
 
 def is_hex(s):
@@ -138,7 +137,7 @@ def lexan():
         # del filecontent[bufferindex]
         bufferindex = bufferindex + 1
         return 'NUM'
-    elif filecontent[bufferindex] in ['+', '#', ',', '@', '=', '*']:
+    elif filecontent[bufferindex] in ['+', '-', '#', ',', '@', '=', '*']:
         c = filecontent[bufferindex]
         # del filecontent[bufferindex]
         bufferindex = bufferindex + 1
@@ -190,7 +189,7 @@ def lexan():
 
             bytestringvalue = bytestring
             if isLiteral:
-                literalValueASCII.append(bytestringvalue)  # saving the ASCII code of literal
+                literalValueASCII.append(bytestringvalue)   # saving the ASCII code of literal
             if len(bytestringvalue) % 2 == 1:
                 bytestringvalue = '0' + bytestringvalue
             bytestring = '_' + bytestring
@@ -270,10 +269,6 @@ def addressLiteral():
 
 
 def parse():
-    sic()
-
-
-def sic():
     header()
     body()
     tail()
@@ -444,34 +439,64 @@ def stmt():
     # --------------- Format 4 ------------------------------
 
 
-def data():
-    global locctrArray, inst, startLine, result
+# support numbers only, not ID | for word in the time bieng
+def expression(firstOperandValue):
+    global startLine, tokenval, operator, lookahead
+    result = firstOperandValue
 
+    while lookahead in operator:
+            operation = lookahead
+            match(operation)
+            if lookahead == "NUM":
+                if operation == '+':
+                    result += tokenval
+                elif operation == '-':
+                    result -= tokenval
+
+                match("NUM")
+
+            # elif lookahead == "ID":
+            #     if operation == '+':
+            #         result += int(symtable[tokenval].att)
+            #     elif operation == '-':
+            #         result -= int(symtable[tokenval].att)
+            #
+            #     match("ID")
+
+    return result
+
+
+def data():
+    global locctrArray, inst, startLine
     if lookahead == "WORD":
         match("WORD")
+        # update locator
         locctrArray[blockType] += 3
         startLine = False
-        expression()
-        symtable[IdIndex].att = result
-        if pass1or2 == 2:
-            inst = result
+        firstOperand = tokenval
+        match("NUM")
+
+        # to skip the expression in pass 1 in case of expression -operator is ('+','-')-
+        if pass1or2 == 1:
+            while not startLine and lookahead in operator:
+                match(lookahead)    # match + or -
+                match(lookahead)    # match ID or NUM
+
+        elif pass1or2 == 2:
+            inst = expression(firstOperand)
             print("T ", blockType, format(locctrArray[blockType] - 3, '06x'), " 03 ", format(inst, '06x'))
-        result = 0
-        startLine = True
 
     elif lookahead == "RESW":
         match("RESW")
         startLine = False
         locctrArray[blockType] += tokenval * 3
         match("NUM")
-        startLine = True
 
     elif lookahead == "RESB":
         match("RESB")
         startLine = False
         locctrArray[blockType] += tokenval
         match("NUM")
-        startLine = True
 
     elif lookahead == "BYTE":
         match("BYTE")
@@ -479,76 +504,18 @@ def data():
         rest2()
 
 
-def expression():
-    global startLine, tokenval, lookahead, result
-
-    if lookahead == "ID":
-        if symtable[tokenval].att == -1 and isEQU:
-            error("forward reference is not allowed")
-        result += symtable[tokenval].att
-        match("ID")
-        if lookahead == "+":
-            match("+")
-            if lookahead == "ID":
-                if symtable[tokenval].att == -1 and isEQU:
-                    error("forward reference is not allowed")
-                result += symtable[tokenval].att
-                match("ID")
-            elif lookahead == "NUM":
-                result += tokenval
-                match("NUM")
-        if lookahead == "-":
-            match("-")
-            if lookahead == "ID":
-                if symtable[tokenval].att == -1 and isEQU:
-                    error("forward reference is not allowed")
-                result -= symtable[tokenval].att
-                match("ID")
-            elif lookahead == "NUM":
-                result -= tokenval
-                match("NUM")
-
-    if lookahead == "NUM":
-        result += tokenval
-        match("NUM")
-        if lookahead == "+":
-            match("+")
-            if lookahead == "ID":
-                if symtable[tokenval].att == -1 and isEQU:
-                    error("forward reference is not allowed")
-                result += symtable[tokenval].att
-                match("ID")
-            elif lookahead == "NUM":
-                result += tokenval
-                match("NUM")
-
-        if lookahead == "-":
-            match("-")
-            if lookahead == "ID":
-                if symtable[tokenval].att == -1 and isEQU:
-                    error("forward reference is not allowed")
-                result -= symtable[tokenval].att
-                match("ID")
-            elif lookahead == "NUM":
-                result -= tokenval
-                match("NUM")
-
-
 def directive():
-    global literalIndex, literalArray, isEQU, literalValueASCII, result, blockType, isBASE, locctrArray, inst
+    global literalIndex, literalArray, literalValueASCII, blockType, isBASE, locctrArray, inst
 
     # --------------- for EQU --------------------------
     if lookahead == "EQU":
         match("EQU")
-        isEQU = True
         if lookahead == "*":
             symtable[IdIndex].att = locctrArray[blockType]
             match("*")
         else:
-            expression()
-            symtable[IdIndex].att = result
-            result = 0
-        isEQU = False
+            symtable[IdIndex].att = tokenval
+            match("NUM")
     # --------------- for BASE --------------------------
     elif lookahead == 'BASE':
         match("BASE")
@@ -633,10 +600,11 @@ def rest4():
             if disp in PCrange:
                 # if disp is negative, It's a special case...
                 if disp < 0:
+                    inst += Pbit3set
                     temp = hex(disp & 0xfff)
                     disp = int(temp, 16)
-
-                inst += Pbit3set
+                else:
+                    inst += Pbit3set
                 inst += disp
             elif base is not None and not isExtd:
                 # base = symtable[tokenval].att
@@ -701,7 +669,6 @@ def index():
         match("REG")
         if pass1or2 == 2:
             inst += Xbit3set
-    startLine = True
 
 
 def rest2():
@@ -712,10 +679,9 @@ def rest2():
             locctrArray[blockType] += (len(symtable[tokenval].string) - 1) // 2
             if pass1or2 == 2:
                 inst = symtable[tokenval].att
-                print("T ", blockType, format(locctrArray[blockType] - 3, '06x').upper(), " 03 ", inst.upper())
+                print("T ", blockType, format(locctrArray[blockType] - 3, '06x').upper(), " 03 ", inst)
 
         match("HEX")
-        startLine = True
 
     elif lookahead == "STRING":
 
@@ -723,13 +689,12 @@ def rest2():
             locctrArray[blockType] += len(symtable[tokenval].string) - 1
             if pass1or2 == 2:
                 inst = symtable[tokenval].att
-                print("T ", blockType, format(locctrArray[blockType] - 3, '06x').upper(), " 03 ", inst.upper())
+                print("T ", blockType, format(locctrArray[blockType] - 3, '06x').upper(), " 03 ", inst)
         match("STRING")
-        startLine = True
 
 
 def main():
-    global file, filecontent, locctrArray, pass1or2, result, bufferindex, lineno, lookahead, literalIndex, blockType
+    global file, filecontent, locctrArray, pass1or2, bufferindex, lineno, lookahead, literalIndex, blockType
     init()
     w = file.read()
     filecontent = re.split("([\\W])", w)
@@ -753,7 +718,6 @@ def main():
         lineno = 1
         literalIndex = 0
         blockType = 0
-        result = 0
     file.close()
 
 
